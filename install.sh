@@ -48,4 +48,7 @@ case ":$PATH:" in
 esac
 
 "$DIR/$BIN" --version
+if [ -d "$HOME/.claude" ]; then
+  "$DIR/$BIN" skill >/dev/null 2>&1 && echo "Installed the Claude Code skill to ~/.claude/skills/peapod"
+fi
 echo "Next: run peapod setup"

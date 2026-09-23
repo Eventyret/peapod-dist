@@ -23,8 +23,7 @@ url="$BASE/$asset.gz"
 
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
-echo "Downloading $asset ..."
-if ! curl -fsSL "$url" -o "$tmp/$BIN.gz"; then
+if ! curl -fL --progress-bar "$url" -o "$tmp/$BIN.gz"; then
   echo "Download failed from $url"
   echo "Is there a published release yet? See https://github.com/$REPO/releases"
   exit 1
@@ -38,17 +37,17 @@ if [ "$os" = "macos" ]; then
   xattr -dr com.apple.quarantine "$DIR/$BIN" 2>/dev/null || true
 fi
 
-echo "Installed $BIN to $DIR/$BIN"
+short_dir="${DIR/#$HOME/~}"
+echo "peapod $("$DIR/$BIN" --version | awk '{print $2}')"
+echo "✔ Installed $short_dir/$BIN"
+if [ -d "$HOME/.claude" ]; then
+  PEAPOD_NO_UPDATE=1 "$DIR/$BIN" skill 2>&1 || true
+fi
 case ":$PATH:" in
   *":$DIR:"*) ;;
   *)
-    echo "$DIR is not on your PATH. Add it, then restart your shell:"
+    echo "$short_dir is not on your PATH. Add it, then restart your shell:"
     echo "  echo 'export PATH=\"$DIR:\$PATH\"' >> ~/.zshrc"
     ;;
 esac
-
-"$DIR/$BIN" --version
-if [ -d "$HOME/.claude" ]; then
-  "$DIR/$BIN" skill >/dev/null 2>&1 && echo "Installed the Claude Code skill to ~/.claude/skills/peapod"
-fi
-echo "Next: run peapod setup"
+echo "Next: peapod setup"

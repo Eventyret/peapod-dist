@@ -1,6 +1,6 @@
 # peapod
 
-peapod links a local Shapeshift library checkout into the API and frontend repos that use it. It replaces `npm run link` and picks v4 or v5 from the repo's library version.
+peapod points a client repo at an unreleased copy of the Shapeshift library, in a work tree with its own `node_modules`.
 
 ## Install
 
@@ -8,26 +8,30 @@ peapod links a local Shapeshift library checkout into the API and frontend repos
 curl -fsSL https://raw.githubusercontent.com/Eventyret/peapod-dist/main/install.sh | bash
 ```
 
-It installs to `~/.local/bin`. Set `PEAPOD_BIN_DIR` to install somewhere else.
+It installs to `~/.local/bin`, checks the sha256 of the download, and installs the agent skill for each agent tool it finds.
+
+Options go after `bash -s --`:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/Eventyret/peapod-dist/main/install.sh | bash -s -- --version v0.5.0
+curl -fsSL https://raw.githubusercontent.com/Eventyret/peapod-dist/main/install.sh | bash -s -- --dir ~/bin
+```
 
 ## Use
 
 ```sh
-peapod setup
+peapod
 ```
 
-Then, inside a consumer repo:
+## Update
 
 ```sh
-peapod          # link the library into this repo
-peapod check    # confirm every link points at the library
-peapod --update # install the latest release
+peapod update
+peapod update --rollback
 ```
 
-## Go back
-
-Run `npm run link` in the consumer repo as before.
+peapod tells you when a new version exists. `update` checks the sha256 before it replaces the binary and keeps the old one as `peapod.prev` next to it.
 
 ## Binaries
 
-Each [release](https://github.com/Eventyret/peapod-dist/releases/latest) attaches `peapod-<target>.gz` for `macos-arm64`, `macos-x64`, `linux-x64` and `linux-arm64`.
+Each [release](https://github.com/Eventyret/peapod-dist/releases/latest) holds `peapod-<target>.gz` and a `.sha256` file for `macos-arm64`, `macos-x64`, `linux-x64` and `linux-arm64`.

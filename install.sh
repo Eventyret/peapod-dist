@@ -2,52 +2,137 @@
 set -euo pipefail
 
 REPO="Eventyret/peapod-dist"
-BIN="peapod"
-DIR="${PEAPOD_BIN_DIR:-$HOME/.local/bin}"
-BASE="${PEAPOD_DOWNLOAD_BASE:-https://github.com/$REPO/releases/latest/download}"
+dir="$HOME/.local/bin"
+tag=""
 
-os="$(uname -s)"
-arch="$(uname -m)"
-case "$os" in
+fail() {
+  echo "Error: $1" >&2
+  [ $# -lt 2 ] || echo "Fix: $2" >&2
+  exit 1
+}
+
+usage() {
+  echo "Usage: install.sh [--dir <folder>] [--version <tag>]"
+  echo "  --dir <folder>    Install here. Default: ~/.local/bin"
+  echo "  --version <tag>   Install this release, for example v0.5.0. Default: latest"
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --dir)
+      [ $# -ge 2 ] || fail "--dir needs a folder." "install.sh --dir ~/bin"
+      dir="$2"
+      shift 2
+      ;;
+    --version)
+      [ $# -ge 2 ] || fail "--version needs a tag." "install.sh --version v0.5.0"
+      tag="$2"
+      shift 2
+      ;;
+    -h | --help)
+      usage
+      exit 0
+      ;;
+    *)
+      fail "Unknown option: $1" "install.sh --help"
+      ;;
+  esac
+done
+
+case "$(uname -s)" in
   Darwin) os="macos" ;;
   Linux) os="linux" ;;
-  *) echo "Unsupported OS: $os"; exit 1 ;;
+  *) fail "peapod has no build for $(uname -s)." "Use macOS or Linux." ;;
 esac
-case "$arch" in
+case "$(uname -m)" in
   arm64 | aarch64) arch="arm64" ;;
   x86_64 | amd64) arch="x64" ;;
-  *) echo "Unsupported architecture: $arch"; exit 1 ;;
+  *) fail "peapod has no build for $(uname -m)." "Use an arm64 or x64 machine." ;;
 esac
-asset="${BIN}-${os}-${arch}"
-url="$BASE/$asset.gz"
+
+if [ -z "$tag" ]; then
+  base="https://github.com/$REPO/releases/latest/download"
+else
+  case "$tag" in v*) ;; *) tag="v$tag" ;; esac
+  base="https://github.com/$REPO/releases/download/$tag"
+fi
+
+asset="peapod-$os-$arch"
+
+hash_of() {
+  if command -v sha256sum > /dev/null 2>&1; then
+    sha256sum "$1" | cut -d ' ' -f 1
+  elif command -v shasum > /dev/null 2>&1; then
+    shasum -a 256 "$1" | cut -d ' ' -f 1
+  else
+    fail "No sha256 tool found." "Install coreutils or perl, then run this again."
+  fi
+}
+
+fetch() {
+  curl -fsSL --connect-timeout 15 --retry 2 "$1" -o "$2" ||
+    if [ -n "$tag" ]; then
+      fail "Download failed: $1" "Release $tag may not exist. See https://github.com/$REPO/releases, or check your network."
+    else
+      fail "Download failed: $1" "Check your network. Releases: https://github.com/$REPO/releases"
+    fi
+}
+
+verified_download() {
+  fetch "$base/$1" "$tmp/$1"
+  fetch "$base/$1.sha256" "$tmp/$1.sha256"
+  expected="$(cut -d ' ' -f 1 < "$tmp/$1.sha256")"
+  actual="$(hash_of "$tmp/$1")"
+  [ "$expected" = "$actual" ] || fail "Checksum does not match for $1. Nothing was installed." "Run this again in a few minutes."
+}
 
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
-if ! curl -fL --progress-bar "$url" -o "$tmp/$BIN.gz"; then
-  echo "Download failed from $url"
-  echo "Is there a published release yet? See https://github.com/$REPO/releases"
-  exit 1
-fi
-gunzip "$tmp/$BIN.gz"
 
-mkdir -p "$DIR"
-chmod +x "$tmp/$BIN"
-mv "$tmp/$BIN" "$DIR/$BIN"
+echo "Downloading $asset ${tag:-latest}"
+verified_download "$asset.gz"
+
+mkdir -p "$dir" 2> /dev/null || fail "Cannot create $dir." "Choose a folder you own: install.sh --dir ~/bin"
+[ -w "$dir" ] || fail "Cannot write to $dir." "Choose a folder you own: install.sh --dir ~/bin"
+
+staged="$dir/.peapod-install.$$"
+trap 'rm -rf "$tmp" "$staged"' EXIT
+gunzip -c "$tmp/$asset.gz" > "$staged" ||
+  fail "The download is not a valid gzip file. Nothing was installed." "Run this again in a few minutes."
+chmod +x "$staged"
 if [ "$os" = "macos" ]; then
-  xattr -dr com.apple.quarantine "$DIR/$BIN" 2>/dev/null || true
+  xattr -dr com.apple.quarantine "$staged" 2> /dev/null || true
 fi
+"$staged" --version > /dev/null 2>&1 || fail "The downloaded peapod does not start on this machine." "Report it at https://github.com/$REPO/issues"
 
-short_dir="${DIR/#$HOME/~}"
-echo "peapod $("$DIR/$BIN" --version | awk '{print $2}')"
-echo "✔ Installed $short_dir/$BIN"
-if [ -d "$HOME/.claude" ]; then
-  PEAPOD_NO_UPDATE=1 "$DIR/$BIN" skill 2>&1 || true
+if [ -f "$dir/peapod" ]; then
+  cp "$dir/peapod" "$dir/peapod.prev"
 fi
+mv -f "$staged" "$dir/peapod"
+
+short_dir="${dir/#$HOME/~}"
+echo "Installed $("$dir/peapod" --version) to $short_dir/peapod"
+
+skill_line="$("$dir/peapod" skill 2> /dev/null || true)"
+[ -z "$skill_line" ] || echo "$skill_line"
+
 case ":$PATH:" in
-  *":$DIR:"*) ;;
+  *":$dir:"*) ;;
   *)
     echo "$short_dir is not on your PATH. Add it, then restart your shell:"
-    echo "  echo 'export PATH=\"$DIR:\$PATH\"' >> ~/.zshrc"
+    case "$(basename "${SHELL:-}")" in
+      zsh) echo "  echo 'export PATH=\"$dir:\$PATH\"' >> ~/.zshrc" ;;
+      bash)
+        if [ "$os" = "macos" ]; then
+          echo "  echo 'export PATH=\"$dir:\$PATH\"' >> ~/.bash_profile"
+        else
+          echo "  echo 'export PATH=\"$dir:\$PATH\"' >> ~/.bashrc"
+        fi
+        ;;
+      fish) echo "  fish_add_path $dir" ;;
+      *) echo "  export PATH=\"$dir:\$PATH\"" ;;
+    esac
     ;;
 esac
-echo "Next: peapod setup"
+
+echo "Next: peapod"
